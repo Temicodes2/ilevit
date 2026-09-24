@@ -1,21 +1,25 @@
-import 'dart:ui' as ui;
+import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_quill/flutter_quill.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-// --- Models ---
+// --- Note & Connection Models ---
 
-enum ViewMode { list, canvas }
+enum ViewMode { canvas, list, dashboard }
 
 class Note {
   final String id;
   String title;
-  String content; // Short preview / abstract
-  String documentBody; // Full long-form document content
-  ui.Offset position;
+  String content;
+  String documentBody;
+  late final ValueNotifier<Offset> positionNotifier;
   int colorValue;
 
   Note({
@@ -23,9 +27,18 @@ class Note {
     required this.title,
     required this.content,
     this.documentBody = '',
-    required this.position,
-    this.colorValue = 0xFF121212,
-  });
+    required Offset position,
+    this.colorValue = 0xFF1E1E22,
+  }) {
+    positionNotifier = ValueNotifier<Offset>(position);
+  }
+
+  Offset get position => positionNotifier.value;
+  set position(Offset val) => positionNotifier.value = val;
+
+  void dispose() {
+    positionNotifier.dispose();
+  }
 }
 
 class Connection {
@@ -35,15 +48,22 @@ class Connection {
   Connection(this.fromId, this.toId);
 }
 
-const double gridSize = 20.0;
+final List<Color> darkNoteColors = [
+  const Color(0xFF1E1E22),
+  const Color(0xFF1E293B),
+  const Color(0xFF0F291E),
+  const Color(0xFF311B29),
+  const Color(0xFF3B1D11),
+  const Color(0xFF1F1D36),
+];
 
-final List<Color> noteColors = [
-  const Color(0xFF121212),
-  const Color(0xFF1E3A8A),
-  const Color(0xFF065F46),
-  const Color(0xFF831843),
-  const Color(0xFF7C2D12),
-  const Color(0xFF4C1D95),
+final List<Color> lightNoteColors = [
+  const Color(0xFFF1F5F9),
+  const Color(0xFFE0F2FE),
+  const Color(0xFFDCFCE7),
+  const Color(0xFFFCE7F3),
+  const Color(0xFFFEF3C7),
+  const Color(0xFFEDE9FE),
 ];
 
 // --- Database Helper ---
@@ -96,16 +116,18 @@ class DBHelper {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.query('notes');
     return maps.map((map) {
+      final rawContent = map['content'] as String;
+      final cleanContent = rawContent == 'Click to add content...' ? '' : rawContent;
       return Note(
         id: map['id'] as String,
         title: map['title'] as String,
-        content: map['content'] as String,
+        content: cleanContent,
         documentBody: (map['documentBody'] as String?) ?? '',
         position: ui.Offset(
           (map['dx'] as num).toDouble(),
           (map['dy'] as num).toDouble(),
         ),
-        colorValue: (map['colorValue'] as int?) ?? 0xFF121212,
+        colorValue: (map['colorValue'] as int?) ?? 0xFF1E1E22,
       );
     }).toList();
   }
@@ -164,30 +186,79 @@ class DBHelper {
       conflictAlgorithm: ConflictAlgorithm.ignore,
     );
   }
-}
 
-// --- App Entry Point ---
+  static Future<void> deleteConnection(Connection conn) async {
+    final db = await database;
+    await db.delete(
+      'connections',
+      where: '(fromId = ? AND toId = ?) OR (fromId = ? AND toId = ?)',
+      whereArgs: [conn.fromId, conn.toId, conn.toId, conn.fromId],
+    );
+  }
+}
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // FFI initialization is only needed for Desktop (Windows/Mac/Linux)
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
   }
-  
-  runApp(MaterialApp(
-    debugShowCheckedModeBanner: false,
-    theme: ThemeData(
-      textTheme: GoogleFonts.dmSansTextTheme(),
-    ),
-    home: const ObsidianNoteApp(),
-  ));
+  runApp(const ObsidianAppRoot());
+}
+
+class ObsidianAppRoot extends StatefulWidget {
+  const ObsidianAppRoot({super.key});
+
+  @override
+  State<ObsidianAppRoot> createState() => _ObsidianAppRootState();
+}
+
+class _ObsidianAppRootState extends State<ObsidianAppRoot> {
+  bool isDarkMode = true;
+
+  void toggleTheme() {
+    setState(() {
+      isDarkMode = !isDarkMode;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
+      theme: ThemeData.light().copyWith(
+        scaffoldBackgroundColor: const Color(0xFFF8FAFC),
+        textTheme: GoogleFonts.interTextTheme(ThemeData.light().textTheme),
+      ),
+      darkTheme: ThemeData.dark().copyWith(
+        scaffoldBackgroundColor: const Color(0xFF0F0F12),
+        textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme),
+      ),
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+        FlutterQuillLocalizations.delegate,
+      ],
+      supportedLocales: const [Locale('en', 'US')],
+      home: ObsidianNoteApp(
+        isDarkMode: isDarkMode,
+        onToggleTheme: toggleTheme,
+      ),
+    );
+  }
 }
 
 class ObsidianNoteApp extends StatefulWidget {
-  const ObsidianNoteApp({super.key});
+  final bool isDarkMode;
+  final VoidCallback onToggleTheme;
+
+  const ObsidianNoteApp({
+    super.key,
+    required this.isDarkMode,
+    required this.onToggleTheme,
+  });
 
   @override
   State<ObsidianNoteApp> createState() => _ObsidianNoteAppState();
@@ -195,30 +266,40 @@ class ObsidianNoteApp extends StatefulWidget {
 
 class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
   ViewMode activeMode = ViewMode.canvas;
-  bool isDarkMode = true;
 
   List<Note> notes = [];
   List<Connection> connections = [];
 
-  int? editingIndex;
+  int cachedTotalWords = 0;
+  Set<String> cachedConnectedNoteIds = {};
+
   String? connectingFromId;
 
-  late TextEditingController titleController;
-  late TextEditingController contentController;
+  final ChangeNotifier canvasRepaintNotifier = ChangeNotifier();
 
   @override
   void initState() {
     super.initState();
-    titleController = TextEditingController();
-    contentController = TextEditingController();
     _loadFromDatabase();
   }
 
   @override
   void dispose() {
-    titleController.dispose();
-    contentController.dispose();
+    for (var note in notes) {
+      note.dispose();
+    }
+    canvasRepaintNotifier.dispose();
     super.dispose();
+  }
+
+  void _recalculateMetrics() {
+    cachedConnectedNoteIds = connections.expand((c) => [c.fromId, c.toId]).toSet();
+    cachedTotalWords = notes.fold<int>(0, (sum, note) {
+      final docText = note.content;
+      return sum +
+          note.title.split(' ').where((w) => w.isNotEmpty).length +
+          docText.split(' ').where((w) => w.isNotEmpty).length;
+    });
   }
 
   Future<void> _loadFromDatabase() async {
@@ -230,17 +311,17 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
         id: '1',
         title: 'Main Architecture',
         content: 'Core project structure and specs.',
-        documentBody: '## System Design\n\nThis is a long-form document embedded within the node.\n\nYou can write detailed project documentation, guides, or essays here.',
+        documentBody: '',
         position: const ui.Offset(300, 300),
-        colorValue: 0xFF1E3A8A,
+        colorValue: 0xFF1E293B,
       );
       final n2 = Note(
         id: '2',
         title: 'Database Schema',
         content: 'Local SQLite tables.',
-        documentBody: '### SQLite Configuration\n- Notes table\n- Connections table',
+        documentBody: '',
         position: const ui.Offset(640, 200),
-        colorValue: 0xFF065F46,
+        colorValue: 0xFF0F291E,
       );
       final c1 = Connection('1', '2');
 
@@ -248,150 +329,93 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
       await DBHelper.insertNote(n2);
       await DBHelper.insertConnection(c1);
 
-      setState(() {
-        notes = [n1, n2];
-        connections = [c1];
-      });
+      notes = [n1, n2];
+      connections = [c1];
     } else {
-      setState(() {
-        notes = loadedNotes;
-        connections = loadedConnections;
-      });
+      notes = loadedNotes;
+      connections = loadedConnections;
+    }
+
+    _attachListeners();
+    _recalculateMetrics();
+    setState(() {});
+  }
+
+  void _attachListeners() {
+    for (var note in notes) {
+      note.positionNotifier.addListener(_onNoteMoved);
     }
   }
 
-  void _startEditing(int index) {
-    setState(() {
-      editingIndex = index;
-      titleController.text = notes[index].title;
-      contentController.text = notes[index].content;
-    });
+  void _onNoteMoved() {
+    // ignore: invalid_use_of_visible_for_testing_member, invalid_use_of_protected_member
+    canvasRepaintNotifier.notifyListeners();
   }
 
-  void _saveEditing(int index) async {
-    final note = notes[index];
-    setState(() {
-      note.title = titleController.text;
-      note.content = contentController.text;
-      editingIndex = null;
-    });
-
-    await DBHelper.updateNote(note);
+  Color _getNoteColor(int storedColorValue) {
+    if (widget.isDarkMode) {
+      return Color(storedColorValue);
+    }
+    final index = darkNoteColors.indexWhere((c) => c.value == storedColorValue);
+    if (index != -1 && index < lightNoteColors.length) {
+      return lightNoteColors[index];
+    }
+    return const Color(0xFFF1F5F9);
   }
 
   void _changeNoteColor(Note note, Color color) async {
+    final darkValue = widget.isDarkMode
+        ? color.value
+        : darkNoteColors[lightNoteColors.indexOf(color)].value;
+
     setState(() {
-      note.colorValue = color.value;
+      note.colorValue = darkValue;
     });
     await DBHelper.updateNote(note);
-  }
-
-  void _openDocumentEditor(Note note) {
-    final docController = TextEditingController(text: note.documentBody);
-    final docTitleController = TextEditingController(text: note.title);
-
-    showGeneralDialog(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: 'Document Workspace',
-      transitionDuration: const Duration(milliseconds: 200),
-      pageBuilder: (context, anim1, anim2) {
-        return Scaffold(
-          backgroundColor: isDarkMode ? const Color(0xFF0F0F10) : const Color(0xFFF8FAFC),
-          appBar: AppBar(
-            backgroundColor: isDarkMode ? const Color(0xFF18181B) : Colors.white,
-            elevation: 1,
-            leading: IconButton(
-              icon: Icon(Icons.arrow_back, color: isDarkMode ? Colors.white : Colors.black),
-              onPressed: () {
-                note.title = docTitleController.text;
-                note.documentBody = docController.text;
-                DBHelper.updateNote(note);
-                setState(() {});
-                Navigator.pop(context);
-              },
-            ),
-            title: TextField(
-              controller: docTitleController,
-              style: TextStyle(
-                color: isDarkMode ? Colors.white : Colors.black,
-                fontWeight: FontWeight.bold,
-                fontSize: 18,
-              ),
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                hintText: 'Document Title...',
-              ),
-            ),
-            actions: [
-              TextButton.icon(
-                icon: const Icon(Icons.check, color: Colors.cyanAccent),
-                label: const Text('Save Document', style: TextStyle(color: Colors.cyanAccent)),
-                onPressed: () {
-                  note.title = docTitleController.text;
-                  note.documentBody = docController.text;
-                  DBHelper.updateNote(note);
-                  setState(() {});
-                  Navigator.pop(context);
-                },
-              ),
-              const SizedBox(width: 16),
-            ],
-          ),
-          body: Center(
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 800),
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-              child: TextField(
-                controller: docController,
-                maxLines: null,
-                expands: true,
-                style: TextStyle(
-                  color: isDarkMode ? Colors.white.withOpacity(0.9) : Colors.black87,
-                  fontSize: 16,
-                  height: 1.6,
-                ),
-                decoration: InputDecoration(
-                  border: InputBorder.none,
-                  hintText: 'Type your long-form document here...',
-                  hintStyle: TextStyle(
-                    color: isDarkMode ? Colors.white30 : Colors.black.withOpacity(0.3),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
   }
 
   void _addNote() async {
     final newNote = Note(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      title: 'New Idea',
-      content: 'Short card overview...',
+      title: 'Untitled Note',
+      content: '',
       documentBody: '',
       position: const ui.Offset(400, 400),
-      colorValue: 0xFF121212,
+      colorValue: darkNoteColors[0].value,
     );
+
+    newNote.positionNotifier.addListener(_onNoteMoved);
 
     setState(() {
       notes.add(newNote);
     });
 
+    _recalculateMetrics();
     await DBHelper.insertNote(newNote);
   }
 
   void _deleteNote(int index) async {
-    final noteId = notes[index].id;
+    final note = notes[index];
+    note.positionNotifier.removeListener(_onNoteMoved);
+
     setState(() {
       notes.removeAt(index);
-      connections.removeWhere((c) => c.fromId == noteId || c.toId == noteId);
-      if (editingIndex == index) editingIndex = null;
+      connections.removeWhere((c) => c.fromId == note.id || c.toId == note.id);
     });
 
-    await DBHelper.deleteNote(noteId);
+    _recalculateMetrics();
+    note.dispose();
+    await DBHelper.deleteNote(note.id);
+  }
+
+  void _deleteConnection(Connection conn) async {
+    setState(() {
+      connections.removeWhere((c) =>
+          (c.fromId == conn.fromId && c.toId == conn.toId) ||
+          (c.fromId == conn.toId && c.toId == conn.fromId));
+    });
+    _recalculateMetrics();
+    await DBHelper.deleteConnection(conn);
   }
 
   void _handleRightClickConnect(String noteId) async {
@@ -414,6 +438,7 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
           connectingFromId = null;
         });
 
+        _recalculateMetrics();
         await DBHelper.insertConnection(newConnection);
       } else {
         setState(() => connectingFromId = null);
@@ -423,82 +448,120 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
 
   @override
   Widget build(BuildContext context) {
-    final backgroundColor = isDarkMode ? const Color(0xFF000000) : const Color(0xFFF1F5F9);
-    final sidebarColor = isDarkMode ? const Color(0xFF121212) : Colors.white;
-    final primaryIconColor = isDarkMode ? Colors.cyanAccent : const Color(0xFF0284C7);
-
     return Scaffold(
-      backgroundColor: backgroundColor,
+      backgroundColor: widget.isDarkMode ? const Color(0xFF0F0F12) : const Color(0xFFF8FAFC),
       body: Stack(
         children: [
-          Positioned.fill(
-            child: activeMode == ViewMode.canvas
-                ? _buildCanvasView()
-                : SafeArea(child: _buildListView()),
-          ),
-          Positioned(
-            left: 20,
-            top: 40,
-            bottom: 40,
-            child: Container(
-              width: 60,
-              decoration: BoxDecoration(
-                color: sidebarColor,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: isDarkMode ? const Color(0xFF2C2C2C) : Colors.black12,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.15),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  )
-                ],
-              ),
-              child: Column(
-                children: [
-                  const SizedBox(height: 16),
-                  Icon(
-                    activeMode == ViewMode.canvas
-                        ? Icons.hub_rounded
-                        : Icons.view_list_rounded,
-                    color: primaryIconColor,
-                  ),
-                  const SizedBox(height: 8),
-                  RotatedBox(
-                    quarterTurns: 1,
-                    child: Switch(
-                      value: activeMode == ViewMode.list,
-                      activeColor: primaryIconColor,
-                      onChanged: (bool isList) {
-                        setState(() {
-                          activeMode = isList ? ViewMode.list : ViewMode.canvas;
-                        });
-                      },
-                    ),
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    icon: Icon(Icons.add_rounded, color: primaryIconColor, size: 28),
-                    onPressed: _addNote,
-                    tooltip: 'Add Note',
-                  ),
-                  const SizedBox(height: 16),
-                ],
-              ),
-            ),
-          ),
+          Positioned.fill(child: _buildBodyView()),
+          _buildFloatingControlBar(),
         ],
       ),
     );
   }
 
+  Widget _buildBodyView() {
+    switch (activeMode) {
+      case ViewMode.canvas:
+        return _buildCanvasView();
+      case ViewMode.list:
+        return SafeArea(child: _buildListView());
+      case ViewMode.dashboard:
+        return SafeArea(child: _buildDashboardView());
+    }
+  }
+
+  Widget _buildFloatingControlBar() {
+    final barBg = widget.isDarkMode
+        ? const Color(0xFF18181B).withOpacity(0.85)
+        : Colors.white.withOpacity(0.9);
+    final borderColor = widget.isDarkMode
+        ? Colors.white.withOpacity(0.08)
+        : Colors.black.withOpacity(0.08);
+    final inactiveIconColor = widget.isDarkMode
+        ? Colors.white.withOpacity(0.4)
+        : Colors.black.withOpacity(0.4);
+
+    return Positioned(
+      left: 20,
+      top: 40,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+        decoration: BoxDecoration(
+          color: barBg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: borderColor),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(widget.isDarkMode ? 0.3 : 0.08),
+              blurRadius: 16,
+              offset: const Offset(0, 4),
+            )
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: Icon(
+                Icons.bubble_chart_rounded,
+                color: activeMode == ViewMode.canvas ? Colors.cyanAccent : inactiveIconColor,
+                size: 20,
+              ),
+              onPressed: () => setState(() => activeMode = ViewMode.canvas),
+              tooltip: 'Canvas View',
+            ),
+            const SizedBox(height: 4),
+            IconButton(
+              icon: Icon(
+                Icons.view_list_rounded,
+                color: activeMode == ViewMode.list ? Colors.cyanAccent : inactiveIconColor,
+                size: 20,
+              ),
+              onPressed: () => setState(() => activeMode = ViewMode.list),
+              tooltip: 'List View',
+            ),
+            const SizedBox(height: 4),
+            IconButton(
+              icon: Icon(
+                Icons.dashboard_rounded,
+                color: activeMode == ViewMode.dashboard ? Colors.cyanAccent : inactiveIconColor,
+                size: 20,
+              ),
+              onPressed: () => setState(() => activeMode = ViewMode.dashboard),
+              tooltip: 'Dashboard View',
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Container(width: 24, height: 1, color: borderColor),
+            ),
+            IconButton(
+              icon: Icon(
+                widget.isDarkMode ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
+                color: widget.isDarkMode ? Colors.amberAccent : Colors.indigoAccent,
+                size: 20,
+              ),
+              onPressed: widget.onToggleTheme,
+              tooltip: widget.isDarkMode ? 'Light Mode' : 'Dark Mode',
+            ),
+            const SizedBox(height: 4),
+            IconButton(
+              icon: Icon(
+                Icons.add_rounded,
+                color: widget.isDarkMode ? Colors.white : Colors.black87,
+                size: 22,
+              ),
+              onPressed: _addNote,
+              tooltip: 'New Note',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildCanvasView() {
-    final canvasBg = isDarkMode ? const Color(0xFF000000) : const Color(0xFFF8FAFC);
-    final textColor = isDarkMode ? Colors.white : Colors.black87;
-    final subtextColor = isDarkMode ? Colors.white70 : Colors.black54;
-    final accentColor = isDarkMode ? Colors.cyanAccent : const Color(0xFF0284C7);
+    final canvasBg = widget.isDarkMode ? const Color(0xFF0F0F12) : const Color(0xFFF1F5F9);
+    const accentColor = Colors.cyanAccent;
 
     return InteractiveViewer(
       constrained: false,
@@ -510,206 +573,84 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
         height: 2500,
         decoration: BoxDecoration(
           color: canvasBg,
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: accentColor.withOpacity(0.3),
-            width: 2.0,
+            color: widget.isDarkMode ? Colors.cyanAccent.withOpacity(0.6) : Colors.indigo.withOpacity(0.6),
+            width: 3.0,
           ),
         ),
         child: Stack(
           children: [
-            CustomPaint(
-              size: const Size(2500, 2500),
-              painter: ConnectionPainter(
-                notes: notes,
-                connections: connections,
-                fallbackLineColor: accentColor.withOpacity(0.7),
+            RepaintBoundary(
+              child: CustomPaint(
+                size: const Size(2500, 2500),
+                painter: ConnectionPainter(
+                  notes: notes,
+                  connections: connections,
+                  fallbackLineColor: accentColor,
+                  isDarkMode: widget.isDarkMode,
+                  repaint: canvasRepaintNotifier,
+                ),
               ),
+            ),
+            ListenableBuilder(
+              listenable: canvasRepaintNotifier,
+              builder: (context, _) {
+                return Stack(
+                  children: connections.map((conn) {
+                    final fromIndex = notes.indexWhere((n) => n.id == conn.fromId);
+                    final toIndex = notes.indexWhere((n) => n.id == conn.toId);
+
+                    if (fromIndex == -1 || toIndex == -1) {
+                      return const SizedBox.shrink();
+                    }
+
+                    final fromNote = notes[fromIndex];
+                    final toNote = notes[toIndex];
+
+                    final start = fromNote.position + const ui.Offset(140, 50);
+                    final end = toNote.position + const ui.Offset(140, 50);
+                    final mid = ui.Offset((start.dx + end.dx) / 2, (start.dy + end.dy) / 2);
+
+                    return Positioned(
+                      left: mid.dx - 14,
+                      top: mid.dy - 14,
+                      child: HoverConnectionButton(
+                        onDelete: () => _deleteConnection(conn),
+                        isDarkMode: widget.isDarkMode,
+                      ),
+                    );
+                  }).toList(),
+                );
+              },
             ),
             ...notes.asMap().entries.map((entry) {
               final index = entry.key;
               final note = entry.value;
-              final isEditing = editingIndex == index;
-              final isConnectingSource = connectingFromId == note.id;
-              final cardBg = Color(note.colorValue);
-              final hasDocument = note.documentBody.isNotEmpty;
 
-              return Positioned(
-                left: note.position.dx,
-                top: note.position.dy,
-                child: Material(
-                  color: Colors.transparent,
-                  child: GestureDetector(
-                    onDoubleTap: () => _openDocumentEditor(note),
-                    onPanUpdate: (details) {
-                      setState(() {
-                        note.position += details.delta;
-                      });
+              return ValueListenableBuilder<Offset>(
+                valueListenable: note.positionNotifier,
+                builder: (context, pos, child) {
+                  return Positioned(
+                    left: pos.dx,
+                    top: pos.dy,
+                    child: child!,
+                  );
+                },
+                child: RepaintBoundary(
+                  child: CanvasNoteCard(
+                    note: note,
+                    index: index,
+                    isDarkMode: widget.isDarkMode,
+                    isConnectingSource: connectingFromId == note.id,
+                    cardColor: _getNoteColor(note.colorValue),
+                    onChangeColor: (c) => _changeNoteColor(note, c),
+                    onDeleteNote: () => _deleteNote(index),
+                    onConnect: _handleRightClickConnect,
+                    onSaved: () {
+                      _recalculateMetrics();
+                      setState(() {});
                     },
-                    onPanEnd: (_) {
-                      final snappedX = (note.position.dx / gridSize).round() * gridSize;
-                      final snappedY = (note.position.dy / gridSize).round() * gridSize;
-
-                      setState(() {
-                        note.position = ui.Offset(snappedX, snappedY);
-                      });
-
-                      DBHelper.updateNote(note);
-                    },
-                    onSecondaryTap: () => _handleRightClickConnect(note.id),
-                    onLongPress: () => _handleRightClickConnect(note.id),
-                    child: Container(
-                      width: 240,
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: cardBg,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: isConnectingSource
-                              ? Colors.amberAccent
-                              : isEditing
-                                  ? accentColor
-                                  : (isDarkMode ? const Color(0xFF3F3F46) : Colors.black12),
-                          width: (isConnectingSource || isEditing) ? 2.0 : 1.2,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(isDarkMode ? 0.4 : 0.08),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
-                          )
-                        ],
-                      ),
-                      child: isEditing
-                          ? Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                TextField(
-                                  controller: titleController,
-                                  style: TextStyle(fontWeight: FontWeight.bold, color: textColor),
-                                  decoration: InputDecoration(
-                                    border: InputBorder.none,
-                                    hintText: 'Title',
-                                    hintStyle: TextStyle(
-                                      color: isDarkMode ? Colors.white38 : Colors.black38,
-                                    ),
-                                  ),
-                                ),
-                                TextField(
-                                  controller: contentController,
-                                  maxLines: null,
-                                  style: TextStyle(color: subtextColor, fontSize: 13),
-                                  decoration: InputDecoration(
-                                    border: InputBorder.none,
-                                    hintText: 'Short Summary',
-                                    hintStyle: TextStyle(
-                                      color: isDarkMode ? Colors.white38 : Colors.black38,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: noteColors.map((color) {
-                                    return GestureDetector(
-                                      onTap: () => _changeNoteColor(note, color),
-                                      child: Container(
-                                        width: 18,
-                                        height: 18,
-                                        decoration: BoxDecoration(
-                                          color: color,
-                                          shape: BoxShape.circle,
-                                          border: Border.all(
-                                            color: note.colorValue == color.value
-                                                ? accentColor
-                                                : Colors.white38,
-                                            width: note.colorValue == color.value ? 2 : 1,
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  }).toList(),
-                                ),
-                                const SizedBox(height: 8),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    IconButton(
-                                      icon: const Icon(Icons.article_outlined, size: 20),
-                                      color: accentColor,
-                                      tooltip: 'Open Full Document',
-                                      onPressed: () => _openDocumentEditor(note),
-                                    ),
-                                    TextButton(
-                                      onPressed: () => _saveEditing(index),
-                                      child: Text('Save', style: TextStyle(color: accentColor)),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            )
-                          : InkWell(
-                              onTap: () => _startEditing(index),
-                              borderRadius: BorderRadius.circular(12),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          note.title,
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            color: textColor,
-                                            fontSize: 15,
-                                          ),
-                                        ),
-                                      ),
-                                      GestureDetector(
-                                        onTap: () => _deleteNote(index),
-                                        child: Icon(
-                                          Icons.close,
-                                          color: isDarkMode ? Colors.white38 : Colors.black38,
-                                          size: 16,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    note.content,
-                                    style: TextStyle(color: subtextColor, fontSize: 13),
-                                  ),
-                                  if (hasDocument) ...[
-                                    const SizedBox(height: 12),
-                                    InkWell(
-                                      onTap: () => _openDocumentEditor(note),
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color: accentColor.withOpacity(0.15),
-                                          borderRadius: BorderRadius.circular(6),
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(Icons.description, size: 12, color: accentColor),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              'Document attached',
-                                              style: TextStyle(fontSize: 11, color: accentColor, fontWeight: FontWeight.bold),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ]
-                                ],
-                              ),
-                            ),
-                    ),
                   ),
                 ),
               );
@@ -721,61 +662,46 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
   }
 
   Widget _buildListView() {
-    final textColor = isDarkMode ? Colors.white : Colors.black87;
-    final subtextColor = isDarkMode ? Colors.white70 : Colors.black54;
-    final accentColor = isDarkMode ? Colors.cyanAccent : const Color(0xFF0284C7);
+    final textColor = widget.isDarkMode ? Colors.white : const Color(0xFF0F172A);
 
     return Padding(
-      padding: const EdgeInsets.only(left: 100.0, right: 32.0, top: 32.0),
+      padding: const EdgeInsets.only(left: 90.0, right: 32.0, top: 32.0),
       child: ListView.builder(
         itemCount: notes.length,
         itemBuilder: (context, index) {
           final note = notes[index];
-          final isEditing = editingIndex == index;
-          final cardBg = Color(note.colorValue);
+          final cardBg = _getNoteColor(note.colorValue);
+          final displayContent = note.content.trim();
+          final hasContent = displayContent.isNotEmpty && displayContent != 'Click to add content...';
 
           return Card(
             color: cardBg,
+            elevation: 0,
             margin: const EdgeInsets.only(bottom: 12),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
-              side: BorderSide(
-                color: isEditing
-                    ? accentColor
-                    : (isDarkMode ? const Color(0xFF3F3F46) : Colors.black12),
-                width: isEditing ? 2.0 : 1.0,
-              ),
             ),
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: ListTile(
-                contentPadding: EdgeInsets.zero,
-                onTap: () => _openDocumentEditor(note),
-                title: Text(
-                  note.title,
-                  style: TextStyle(fontWeight: FontWeight.bold, color: textColor),
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              onTap: () {
+                setState(() => activeMode = ViewMode.canvas);
+              },
+              title: Text(
+                note.title,
+                style: TextStyle(fontWeight: FontWeight.w600, color: textColor),
+              ),
+              subtitle: Text(
+                hasContent ? displayContent : 'Click to add content...',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: hasContent ? textColor.withOpacity(0.6) : textColor.withOpacity(0.3),
+                  fontStyle: hasContent ? FontStyle.normal : FontStyle.italic,
                 ),
-                subtitle: Text(
-                  note.content,
-                  style: TextStyle(color: subtextColor),
-                ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: Icon(Icons.article_outlined, color: accentColor),
-                      onPressed: () => _openDocumentEditor(note),
-                      tooltip: 'Open Document Workspace',
-                    ),
-                    IconButton(
-                      icon: Icon(
-                        Icons.delete_outline,
-                        color: isDarkMode ? Colors.white38 : Colors.black38,
-                      ),
-                      onPressed: () => _deleteNote(index),
-                    ),
-                  ],
-                ),
+              ),
+              trailing: IconButton(
+                icon: Icon(Icons.delete_outline_rounded, color: textColor.withOpacity(0.3)),
+                onPressed: () => _deleteNote(index),
               ),
             ),
           );
@@ -783,20 +709,557 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
       ),
     );
   }
+
+  Widget _buildDashboardView() {
+    final textColor = widget.isDarkMode ? Colors.white : const Color(0xFF0F172A);
+    final cardBg = widget.isDarkMode ? const Color(0xFF18181B) : Colors.white;
+    final border = Border.all(
+      color: widget.isDarkMode ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.08),
+    );
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(left: 90.0, right: 32.0, top: 32.0, bottom: 40.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Workspace Dashboard',
+            style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: textColor),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Analytics and deep insights into your visual canvas knowledge graph.',
+            style: TextStyle(color: textColor.withOpacity(0.6), fontSize: 14),
+          ),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              _buildStatCard('Total Notes', notes.length.toString(), Icons.notes_rounded, cardBg, border, textColor),
+              const SizedBox(width: 16),
+              _buildStatCard('Connected Notes', cachedConnectedNoteIds.length.toString(), Icons.hub_outlined, cardBg, border, textColor),
+              const SizedBox(width: 16),
+              _buildStatCard('Connections', connections.length.toString(), Icons.timeline_rounded, cardBg, border, textColor),
+              const SizedBox(width: 16),
+              _buildStatCard('Total Words', cachedTotalWords.toString(), Icons.short_text_rounded, cardBg, border, textColor),
+            ],
+          ),
+          const SizedBox(height: 24),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                flex: 3,
+                child: Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(color: cardBg, borderRadius: BorderRadius.circular(16), border: border),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Recent Canvas Nodes', style: TextStyle(fontWeight: FontWeight.bold, color: textColor, fontSize: 16)),
+                      const SizedBox(height: 12),
+                      ...notes.take(5).map((note) {
+                        final displayContent = note.content.trim();
+                        final hasContent = displayContent.isNotEmpty && displayContent != 'Click to add content...';
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: _getNoteColor(note.colorValue),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(note.title, style: TextStyle(fontWeight: FontWeight.w600, color: textColor)),
+                                  Text(
+                                    hasContent ? displayContent : 'No text body...',
+                                    style: TextStyle(
+                                      color: hasContent ? textColor.withOpacity(0.6) : textColor.withOpacity(0.3),
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.map_rounded, size: 18, color: Colors.cyanAccent),
+                                onPressed: () {
+                                  setState(() => activeMode = ViewMode.canvas);
+                                },
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 20),
+              Expanded(
+                flex: 2,
+                child: Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(color: cardBg, borderRadius: BorderRadius.circular(16), border: border),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Quick Actions', style: TextStyle(fontWeight: FontWeight.bold, color: textColor, fontSize: 16)),
+                      const SizedBox(height: 16),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.cyanAccent,
+                          foregroundColor: Colors.black,
+                          minimumSize: const Size(double.infinity, 44),
+                        ),
+                        onPressed: () {
+                          _addNote();
+                          setState(() => activeMode = ViewMode.canvas);
+                        },
+                        icon: const Icon(Icons.add_location_alt_rounded),
+                        label: const Text('Add Note on Canvas'),
+                      ),
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: textColor,
+                          side: BorderSide(color: textColor.withOpacity(0.2)),
+                          minimumSize: const Size(double.infinity, 44),
+                        ),
+                        onPressed: () => setState(() => activeMode = ViewMode.canvas),
+                        icon: const Icon(Icons.map_rounded),
+                        label: const Text('Return to Canvas View'),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            ],
+          )
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatCard(String title, String value, IconData icon, Color bg, BoxBorder border, Color textColor) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(16), border: border),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: Colors.cyanAccent, size: 22),
+            const SizedBox(height: 12),
+            Text(value, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: textColor)),
+            const SizedBox(height: 4),
+            Text(title, style: TextStyle(fontSize: 12, color: textColor.withOpacity(0.6))),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
-// --- Connection Custom Painter ---
+// --- Canvas Note Card Widget ---
+
+class CanvasNoteCard extends StatefulWidget {
+  final Note note;
+  final int index;
+  final bool isDarkMode;
+  final bool isConnectingSource;
+  final Color cardColor;
+  final Function(Color) onChangeColor;
+  final VoidCallback onDeleteNote;
+  final Function(String) onConnect;
+  final VoidCallback onSaved;
+
+  const CanvasNoteCard({
+    super.key,
+    required this.note,
+    required this.index,
+    required this.isDarkMode,
+    required this.isConnectingSource,
+    required this.cardColor,
+    required this.onChangeColor,
+    required this.onDeleteNote,
+    required this.onConnect,
+    required this.onSaved,
+  });
+
+  @override
+  State<CanvasNoteCard> createState() => _CanvasNoteCardState();
+}
+
+class _CanvasNoteCardState extends State<CanvasNoteCard> {
+  bool isEditing = false;
+  late TextEditingController _titleController;
+  late QuillController _quillController;
+  final FocusNode _editorFocusNode = FocusNode();
+  final ScrollController _editorScrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _titleController = TextEditingController(text: widget.note.title);
+    _initQuillController();
+  }
+
+  void _initQuillController() {
+    final rawContent = widget.note.content.trim();
+    if (rawContent == 'Click to add content...') {
+      widget.note.content = '';
+    }
+
+    if (widget.note.documentBody.isNotEmpty) {
+      try {
+        final docJson = jsonDecode(widget.note.documentBody);
+        _quillController = QuillController(
+          document: Document.fromJson(docJson),
+          selection: const TextSelection.collapsed(offset: 0),
+        );
+        return;
+      } catch (_) {}
+    }
+    _quillController = _fallbackQuillController();
+  }
+
+  QuillController _fallbackQuillController() {
+    final text = widget.note.content.trim();
+    final isEmpty = text.isEmpty || text == 'Click to add content...';
+
+    final docDelta = isEmpty
+        ? [
+            {'insert': '\n'}
+          ]
+        : [
+            {'insert': '$text\n'}
+          ];
+
+    return QuillController(
+      document: Document.fromJson(docDelta),
+      selection: const TextSelection.collapsed(offset: 0),
+    );
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _quillController.dispose();
+    _editorFocusNode.dispose();
+    _editorScrollController.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    setState(() {
+      final textTitle = _titleController.text.trim();
+      widget.note.title = textTitle.isEmpty ? 'Untitled Note' : textTitle;
+
+      final plainText = _quillController.document.toPlainText().trim();
+      if (plainText.isEmpty || plainText == 'Click to add content...') {
+        widget.note.content = '';
+        widget.note.documentBody = '';
+      } else {
+        widget.note.content = plainText;
+        widget.note.documentBody = jsonEncode(_quillController.document.toDelta().toJson());
+      }
+
+      isEditing = false;
+    });
+    DBHelper.updateNote(widget.note);
+    widget.onSaved();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const accentColor = Colors.cyanAccent;
+    final textColor = widget.isDarkMode ? Colors.white : const Color(0xFF0F172A);
+    final subTextColor = widget.isDarkMode ? Colors.white.withOpacity(0.6) : const Color(0xFF475569);
+
+    final cardBorderColor = widget.isConnectingSource
+        ? Colors.amberAccent
+        : (widget.isDarkMode ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.12));
+    final palette = widget.isDarkMode ? darkNoteColors : lightNoteColors;
+
+    final displayContent = widget.note.content.trim();
+    final hasContent = displayContent.isNotEmpty && displayContent != 'Click to add content...';
+
+    return Material(
+      color: Colors.transparent,
+      child: GestureDetector(
+        onSecondaryTap: () => widget.onConnect(widget.note.id),
+        onLongPress: () => widget.onConnect(widget.note.id),
+        onPanUpdate: (details) {
+          widget.note.position += details.delta;
+        },
+        onPanEnd: (_) {
+          const double gridSize = 20.0;
+
+          final snappedX = (widget.note.position.dx / gridSize).round() * gridSize;
+          final snappedY = (widget.note.position.dy / gridSize).round() * gridSize;
+
+          widget.note.position = ui.Offset(snappedX, snappedY);
+          DBHelper.updateNote(widget.note);
+        },
+        child: Container(
+          width: 280,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: widget.cardColor,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: cardBorderColor,
+              width: widget.isConnectingSource ? 2.0 : 1.0,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(widget.isDarkMode ? 0.4 : 0.08),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              )
+            ],
+          ),
+          child: isEditing
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TextField(
+                      controller: _titleController,
+                      style: TextStyle(fontWeight: FontWeight.w600, color: textColor, fontSize: 15),
+                      decoration: InputDecoration(
+                        border: InputBorder.none,
+                        hintText: 'Untitled Note',
+                        hintStyle: TextStyle(color: textColor.withOpacity(0.3)),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: QuillSimpleToolbar(
+                        controller: _quillController,
+                        config: const QuillSimpleToolbarConfig(
+                          showFontFamily: false,
+                          showFontSize: false,
+                          showBoldButton: true,
+                          showItalicButton: true,
+                          showUnderLineButton: true,
+                          showStrikeThrough: false,
+                          showInlineCode: false,
+                          showColorButton: false,
+                          showBackgroundColorButton: false,
+                          showClearFormat: false,
+                          showAlignmentButtons: false,
+                          showHeaderStyle: false,
+                          showListNumbers: false,
+                          showListBullets: true,
+                          showListCheck: false,
+                          showCodeBlock: false,
+                          showQuote: false,
+                          showIndent: false,
+                          showLink: false,
+                          showUndo: false,
+                          showRedo: false,
+                          showDirection: false,
+                          showSearchButton: false,
+                          showSubscript: false,
+                          showSuperscript: false,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Container(
+                      height: 120,
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: widget.isDarkMode ? Colors.black12 : Colors.white24,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: QuillEditor(
+                        focusNode: _editorFocusNode,
+                        scrollController: _editorScrollController,
+                        controller: _quillController,
+                        config: const QuillEditorConfig(
+                          placeholder: 'Click to add content...',
+                          padding: EdgeInsets.all(4),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: palette.map((color) {
+                        final isSelected = widget.isDarkMode
+                            ? widget.note.colorValue == color.value
+                            : darkNoteColors[palette.indexOf(color)].value == widget.note.colorValue;
+
+                        return GestureDetector(
+                          onTap: () => widget.onChangeColor(color),
+                          child: Container(
+                            width: 16,
+                            height: 16,
+                            decoration: BoxDecoration(
+                              color: color,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: isSelected ? accentColor : Colors.black12,
+                                width: isSelected ? 2 : 1,
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: _save,
+                        child: const Text('Save', style: TextStyle(color: accentColor, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ],
+                )
+              : InkWell(
+                  onTap: () => setState(() => isEditing = true),
+                  borderRadius: BorderRadius.circular(10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              widget.note.title,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: textColor,
+                                fontSize: 14,
+                                letterSpacing: -0.2,
+                              ),
+                            ),
+                          ),
+                          GestureDetector(
+                            onTap: widget.onDeleteNote,
+                            child: Icon(
+                              Icons.close_rounded,
+                              color: textColor.withOpacity(0.3),
+                              size: 16,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        hasContent ? displayContent : 'Click to add content...',
+                        maxLines: 4,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: hasContent ? subTextColor : subTextColor.withOpacity(0.4),
+                          fontSize: 13,
+                          height: 1.4,
+                          fontStyle: hasContent ? FontStyle.normal : FontStyle.italic,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+// --- Connection Delete Button Widget ---
+
+class HoverConnectionButton extends StatefulWidget {
+  final VoidCallback onDelete;
+  final bool isDarkMode;
+
+  const HoverConnectionButton({
+    super.key,
+    required this.onDelete,
+    required this.isDarkMode,
+  });
+
+  @override
+  State<HoverConnectionButton> createState() => _HoverConnectionButtonState();
+}
+
+class _HoverConnectionButtonState extends State<HoverConnectionButton> {
+  bool isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => isHovered = true),
+      onExit: (_) => setState(() => isHovered = false),
+      child: GestureDetector(
+        onTap: widget.onDelete,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          width: 28,
+          height: 28,
+          decoration: BoxDecoration(
+            color: isHovered
+                ? Colors.redAccent
+                : (widget.isDarkMode ? const Color(0xFF18181B) : Colors.white),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: isHovered
+                  ? Colors.red
+                  : (widget.isDarkMode ? Colors.white24 : Colors.black26),
+              width: 1.5,
+            ),
+            boxShadow: isHovered
+                ? [
+                    BoxShadow(
+                      color: Colors.redAccent.withOpacity(0.4),
+                      blurRadius: 8,
+                      spreadRadius: 1,
+                    )
+                  ]
+                : [],
+          ),
+          child: Center(
+            child: Icon(
+              Icons.close_rounded,
+              size: isHovered ? 16 : 12,
+              color: isHovered
+                  ? Colors.white
+                  : (widget.isDarkMode ? Colors.white70 : Colors.black87),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// --- Connection Painter ---
 
 class ConnectionPainter extends CustomPainter {
   final List<Note> notes;
   final List<Connection> connections;
   final Color fallbackLineColor;
+  final bool isDarkMode;
 
   ConnectionPainter({
     required this.notes,
     required this.connections,
     required this.fallbackLineColor,
-  });
+    required this.isDarkMode,
+    Listenable? repaint,
+  }) : super(repaint: repaint);
+
+  ui.Offset _getCardCenter(Note note) {
+    return note.position + const ui.Offset(140, 50);
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -809,27 +1272,14 @@ class ConnectionPainter extends CustomPainter {
       final fromNote = notes[fromIndex];
       final toNote = notes[toIndex];
 
-      final start = fromNote.position + const ui.Offset(120, 40);
-      final end = toNote.position + const ui.Offset(120, 40);
+      final start = _getCardCenter(fromNote);
+      final end = _getCardCenter(toNote);
 
-      final colorFrom = Color(fromNote.colorValue);
-      final colorTo = Color(toNote.colorValue);
-
-      Color strokeColor;
-
-      if (fromNote.colorValue == 0xFF121212 && toNote.colorValue == 0xFF121212) {
-        strokeColor = fallbackLineColor;
-      } else if (fromNote.colorValue == 0xFF121212) {
-        strokeColor = colorTo;
-      } else if (toNote.colorValue == 0xFF121212) {
-        strokeColor = colorFrom;
-      } else {
-        strokeColor = Color.lerp(colorFrom, colorTo, 0.5) ?? fallbackLineColor;
-      }
+      final strokeColor = isDarkMode ? fallbackLineColor : Colors.indigoAccent;
 
       final paint = Paint()
-        ..color = strokeColor.withOpacity(1.0)
-        ..strokeWidth = 3.5
+        ..color = strokeColor.withOpacity(0.8)
+        ..strokeWidth = 3.0
         ..strokeCap = StrokeCap.round
         ..style = PaintingStyle.stroke;
 
@@ -838,5 +1288,5 @@ class ConnectionPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  bool shouldRepaint(covariant ConnectionPainter oldDelegate) => true;
 }
