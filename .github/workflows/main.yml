@@ -1,0 +1,46 @@
+name: Build iOS IPA
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch: # Allows manual triggering from GitHub UI
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      # 1. Checkout your repository code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Set up Java (required for some build tools)
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # 3. Set up Flutter environment
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      # 4. Get Flutter dependencies
+      - name: Install dependencies
+        run: flutter pub get
+
+      # 5. Build the unsigned iOS IPA package
+      - name: Build Unsigned IPA
+        run: flutter build ipa --no-codesign
+
+      # 6. Upload the generated IPA as an artifact
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build
+          path: build/ios/ipa/*.ipa
