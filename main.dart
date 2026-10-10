@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 // --- Models ---
@@ -86,7 +85,8 @@ class DBHelper {
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 4) {
-          await db.execute('ALTER TABLE notes ADD COLUMN documentBody TEXT DEFAULT ""');
+          await db.execute(
+              'ALTER TABLE notes ADD COLUMN documentBody TEXT DEFAULT ""');
         }
       },
     );
@@ -147,13 +147,17 @@ class DBHelper {
   static Future<void> deleteNote(String id) async {
     final db = await database;
     await db.delete('notes', where: 'id = ?', whereArgs: [id]);
-    await db.delete('connections', where: 'fromId = ? OR toId = ?', whereArgs: [id, id]);
+    await db.delete('connections',
+        where: 'fromId = ? OR toId = ?', whereArgs: [id, id]);
   }
 
   static Future<List<Connection>> fetchConnections() async {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.query('connections');
-    return maps.map((map) => Connection(map['fromId'] as String, map['toId'] as String)).toList();
+    return maps
+        .map(
+            (map) => Connection(map['fromId'] as String, map['toId'] as String))
+        .toList();
   }
 
   static Future<void> insertConnection(Connection conn) async {
@@ -170,13 +174,13 @@ class DBHelper {
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   // FFI initialization is only needed for Desktop (Windows/Mac/Linux)
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
   }
-  
+
   runApp(MaterialApp(
     debugShowCheckedModeBanner: false,
     theme: ThemeData(
@@ -230,7 +234,8 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
         id: '1',
         title: 'Main Architecture',
         content: 'Core project structure and specs.',
-        documentBody: '## System Design\n\nThis is a long-form document embedded within the node.\n\nYou can write detailed project documentation, guides, or essays here.',
+        documentBody:
+            '## System Design\n\nThis is a long-form document embedded within the node.\n\nYou can write detailed project documentation, guides, or essays here.',
         position: const ui.Offset(300, 300),
         colorValue: 0xFF1E3A8A,
       );
@@ -238,7 +243,8 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
         id: '2',
         title: 'Database Schema',
         content: 'Local SQLite tables.',
-        documentBody: '### SQLite Configuration\n- Notes table\n- Connections table',
+        documentBody:
+            '### SQLite Configuration\n- Notes table\n- Connections table',
         position: const ui.Offset(640, 200),
         colorValue: 0xFF065F46,
       );
@@ -281,7 +287,7 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
 
   void _changeNoteColor(Note note, Color color) async {
     setState(() {
-      note.colorValue = color.value;
+      note.colorValue = color.toARGB32();
     });
     await DBHelper.updateNote(note);
   }
@@ -297,12 +303,15 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
       transitionDuration: const Duration(milliseconds: 200),
       pageBuilder: (context, anim1, anim2) {
         return Scaffold(
-          backgroundColor: isDarkMode ? const Color(0xFF0F0F10) : const Color(0xFFF8FAFC),
+          backgroundColor:
+              isDarkMode ? const Color(0xFF0F0F10) : const Color(0xFFF8FAFC),
           appBar: AppBar(
-            backgroundColor: isDarkMode ? const Color(0xFF18181B) : Colors.white,
+            backgroundColor:
+                isDarkMode ? const Color(0xFF18181B) : Colors.white,
             elevation: 1,
             leading: IconButton(
-              icon: Icon(Icons.arrow_back, color: isDarkMode ? Colors.white : Colors.black),
+              icon: Icon(Icons.arrow_back,
+                  color: isDarkMode ? Colors.white : Colors.black),
               onPressed: () {
                 note.title = docTitleController.text;
                 note.documentBody = docController.text;
@@ -326,7 +335,8 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
             actions: [
               TextButton.icon(
                 icon: const Icon(Icons.check, color: Colors.cyanAccent),
-                label: const Text('Save Document', style: TextStyle(color: Colors.cyanAccent)),
+                label: const Text('Save Document',
+                    style: TextStyle(color: Colors.cyanAccent)),
                 onPressed: () {
                   note.title = docTitleController.text;
                   note.documentBody = docController.text;
@@ -347,7 +357,9 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
                 maxLines: null,
                 expands: true,
                 style: TextStyle(
-                  color: isDarkMode ? Colors.white.withOpacity(0.9) : Colors.black87,
+                  color: isDarkMode
+                      ? Colors.white.withValues(alpha: 0.9)
+                      : Colors.black87,
                   fontSize: 16,
                   height: 1.6,
                 ),
@@ -355,7 +367,9 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
                   border: InputBorder.none,
                   hintText: 'Type your long-form document here...',
                   hintStyle: TextStyle(
-                    color: isDarkMode ? Colors.white30 : Colors.black.withOpacity(0.3),
+                    color: isDarkMode
+                        ? Colors.white30
+                        : Colors.black.withValues(alpha: 0.3),
                   ),
                 ),
               ),
@@ -423,9 +437,11 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
 
   @override
   Widget build(BuildContext context) {
-    final backgroundColor = isDarkMode ? const Color(0xFF000000) : const Color(0xFFF1F5F9);
+    final backgroundColor =
+        isDarkMode ? const Color(0xFF000000) : const Color(0xFFF1F5F9);
     final sidebarColor = isDarkMode ? const Color(0xFF121212) : Colors.white;
-    final primaryIconColor = isDarkMode ? Colors.cyanAccent : const Color(0xFF0284C7);
+    final primaryIconColor =
+        isDarkMode ? Colors.cyanAccent : const Color(0xFF0284C7);
 
     return Scaffold(
       backgroundColor: backgroundColor,
@@ -450,7 +466,7 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.15),
+                    color: Colors.black.withValues(alpha: 0.15),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   )
@@ -470,7 +486,7 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
                     quarterTurns: 1,
                     child: Switch(
                       value: activeMode == ViewMode.list,
-                      activeColor: primaryIconColor,
+                      activeThumbColor: primaryIconColor,
                       onChanged: (bool isList) {
                         setState(() {
                           activeMode = isList ? ViewMode.list : ViewMode.canvas;
@@ -480,7 +496,8 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
                   ),
                   const Spacer(),
                   IconButton(
-                    icon: Icon(Icons.add_rounded, color: primaryIconColor, size: 28),
+                    icon: Icon(Icons.add_rounded,
+                        color: primaryIconColor, size: 28),
                     onPressed: _addNote,
                     tooltip: 'Add Note',
                   ),
@@ -495,10 +512,12 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
   }
 
   Widget _buildCanvasView() {
-    final canvasBg = isDarkMode ? const Color(0xFF000000) : const Color(0xFFF8FAFC);
+    final canvasBg =
+        isDarkMode ? const Color(0xFF000000) : const Color(0xFFF8FAFC);
     final textColor = isDarkMode ? Colors.white : Colors.black87;
     final subtextColor = isDarkMode ? Colors.white70 : Colors.black54;
-    final accentColor = isDarkMode ? Colors.cyanAccent : const Color(0xFF0284C7);
+    final accentColor =
+        isDarkMode ? Colors.cyanAccent : const Color(0xFF0284C7);
 
     return InteractiveViewer(
       constrained: false,
@@ -511,7 +530,7 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
         decoration: BoxDecoration(
           color: canvasBg,
           border: Border.all(
-            color: accentColor.withOpacity(0.3),
+            color: accentColor.withValues(alpha: 0.3),
             width: 2.0,
           ),
         ),
@@ -522,7 +541,7 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
               painter: ConnectionPainter(
                 notes: notes,
                 connections: connections,
-                fallbackLineColor: accentColor.withOpacity(0.7),
+                fallbackLineColor: accentColor.withValues(alpha: 0.7),
               ),
             ),
             ...notes.asMap().entries.map((entry) {
@@ -546,8 +565,10 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
                       });
                     },
                     onPanEnd: (_) {
-                      final snappedX = (note.position.dx / gridSize).round() * gridSize;
-                      final snappedY = (note.position.dy / gridSize).round() * gridSize;
+                      final snappedX =
+                          (note.position.dx / gridSize).round() * gridSize;
+                      final snappedY =
+                          (note.position.dy / gridSize).round() * gridSize;
 
                       setState(() {
                         note.position = ui.Offset(snappedX, snappedY);
@@ -568,12 +589,15 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
                               ? Colors.amberAccent
                               : isEditing
                                   ? accentColor
-                                  : (isDarkMode ? const Color(0xFF3F3F46) : Colors.black12),
+                                  : (isDarkMode
+                                      ? const Color(0xFF3F3F46)
+                                      : Colors.black12),
                           width: (isConnectingSource || isEditing) ? 2.0 : 1.2,
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(isDarkMode ? 0.4 : 0.08),
+                            color: Colors.black
+                                .withValues(alpha: isDarkMode ? 0.4 : 0.08),
                             blurRadius: 10,
                             offset: const Offset(0, 4),
                           )
@@ -586,33 +610,42 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
                               children: [
                                 TextField(
                                   controller: titleController,
-                                  style: TextStyle(fontWeight: FontWeight.bold, color: textColor),
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: textColor),
                                   decoration: InputDecoration(
                                     border: InputBorder.none,
                                     hintText: 'Title',
                                     hintStyle: TextStyle(
-                                      color: isDarkMode ? Colors.white38 : Colors.black38,
+                                      color: isDarkMode
+                                          ? Colors.white38
+                                          : Colors.black38,
                                     ),
                                   ),
                                 ),
                                 TextField(
                                   controller: contentController,
                                   maxLines: null,
-                                  style: TextStyle(color: subtextColor, fontSize: 13),
+                                  style: TextStyle(
+                                      color: subtextColor, fontSize: 13),
                                   decoration: InputDecoration(
                                     border: InputBorder.none,
                                     hintText: 'Short Summary',
                                     hintStyle: TextStyle(
-                                      color: isDarkMode ? Colors.white38 : Colors.black38,
+                                      color: isDarkMode
+                                          ? Colors.white38
+                                          : Colors.black38,
                                     ),
                                   ),
                                 ),
                                 const SizedBox(height: 8),
                                 Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
                                   children: noteColors.map((color) {
                                     return GestureDetector(
-                                      onTap: () => _changeNoteColor(note, color),
+                                      onTap: () =>
+                                          _changeNoteColor(note, color),
                                       child: Container(
                                         width: 18,
                                         height: 18,
@@ -620,10 +653,14 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
                                           color: color,
                                           shape: BoxShape.circle,
                                           border: Border.all(
-                                            color: note.colorValue == color.value
+                                            color: note.colorValue ==
+                                                    color.toARGB32()
                                                 ? accentColor
                                                 : Colors.white38,
-                                            width: note.colorValue == color.value ? 2 : 1,
+                                            width: note.colorValue ==
+                                                    color.toARGB32()
+                                                ? 2
+                                                : 1,
                                           ),
                                         ),
                                       ),
@@ -632,17 +669,21 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
                                 ),
                                 const SizedBox(height: 8),
                                 Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
                                   children: [
                                     IconButton(
-                                      icon: const Icon(Icons.article_outlined, size: 20),
+                                      icon: const Icon(Icons.article_outlined,
+                                          size: 20),
                                       color: accentColor,
                                       tooltip: 'Open Full Document',
-                                      onPressed: () => _openDocumentEditor(note),
+                                      onPressed: () =>
+                                          _openDocumentEditor(note),
                                     ),
                                     TextButton(
                                       onPressed: () => _saveEditing(index),
-                                      child: Text('Save', style: TextStyle(color: accentColor)),
+                                      child: Text('Save',
+                                          style: TextStyle(color: accentColor)),
                                     ),
                                   ],
                                 ),
@@ -655,7 +696,8 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
                                     children: [
                                       Expanded(
                                         child: Text(
@@ -671,7 +713,9 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
                                         onTap: () => _deleteNote(index),
                                         child: Icon(
                                           Icons.close,
-                                          color: isDarkMode ? Colors.white38 : Colors.black38,
+                                          color: isDarkMode
+                                              ? Colors.white38
+                                              : Colors.black38,
                                           size: 16,
                                         ),
                                       ),
@@ -680,26 +724,34 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
                                   const SizedBox(height: 8),
                                   Text(
                                     note.content,
-                                    style: TextStyle(color: subtextColor, fontSize: 13),
+                                    style: TextStyle(
+                                        color: subtextColor, fontSize: 13),
                                   ),
                                   if (hasDocument) ...[
                                     const SizedBox(height: 12),
                                     InkWell(
                                       onTap: () => _openDocumentEditor(note),
                                       child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 8, vertical: 4),
                                         decoration: BoxDecoration(
-                                          color: accentColor.withOpacity(0.15),
-                                          borderRadius: BorderRadius.circular(6),
+                                          color: accentColor.withValues(
+                                              alpha: 0.15),
+                                          borderRadius:
+                                              BorderRadius.circular(6),
                                         ),
                                         child: Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            Icon(Icons.description, size: 12, color: accentColor),
+                                            Icon(Icons.description,
+                                                size: 12, color: accentColor),
                                             const SizedBox(width: 4),
                                             Text(
                                               'Document attached',
-                                              style: TextStyle(fontSize: 11, color: accentColor, fontWeight: FontWeight.bold),
+                                              style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: accentColor,
+                                                  fontWeight: FontWeight.bold),
                                             ),
                                           ],
                                         ),
@@ -723,7 +775,8 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
   Widget _buildListView() {
     final textColor = isDarkMode ? Colors.white : Colors.black87;
     final subtextColor = isDarkMode ? Colors.white70 : Colors.black54;
-    final accentColor = isDarkMode ? Colors.cyanAccent : const Color(0xFF0284C7);
+    final accentColor =
+        isDarkMode ? Colors.cyanAccent : const Color(0xFF0284C7);
 
     return Padding(
       padding: const EdgeInsets.only(left: 100.0, right: 32.0, top: 32.0),
@@ -753,7 +806,8 @@ class _ObsidianNoteAppState extends State<ObsidianNoteApp> {
                 onTap: () => _openDocumentEditor(note),
                 title: Text(
                   note.title,
-                  style: TextStyle(fontWeight: FontWeight.bold, color: textColor),
+                  style:
+                      TextStyle(fontWeight: FontWeight.bold, color: textColor),
                 ),
                 subtitle: Text(
                   note.content,
@@ -817,7 +871,8 @@ class ConnectionPainter extends CustomPainter {
 
       Color strokeColor;
 
-      if (fromNote.colorValue == 0xFF121212 && toNote.colorValue == 0xFF121212) {
+      if (fromNote.colorValue == 0xFF121212 &&
+          toNote.colorValue == 0xFF121212) {
         strokeColor = fallbackLineColor;
       } else if (fromNote.colorValue == 0xFF121212) {
         strokeColor = colorTo;
@@ -828,7 +883,7 @@ class ConnectionPainter extends CustomPainter {
       }
 
       final paint = Paint()
-        ..color = strokeColor.withOpacity(1.0)
+        ..color = strokeColor.withValues(alpha: 1.0)
         ..strokeWidth = 3.5
         ..strokeCap = StrokeCap.round
         ..style = PaintingStyle.stroke;
