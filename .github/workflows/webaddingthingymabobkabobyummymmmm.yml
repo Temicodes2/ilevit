@@ -20,10 +20,10 @@ jobs:
         uses: dart-lang/setup-dart@v1
 
       - name: Install webdev
-        run: dart pub global activate webdev
+        run: flutter pub global activate webdev
 
       - name: Install Dependencies
-        run: dart pub get
+        run: flutter pub get
 
       - name: Build Web Application
         run: $HOME/.pub-cache/bin/webdev build
