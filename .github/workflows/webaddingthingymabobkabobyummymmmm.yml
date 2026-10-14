@@ -3,7 +3,8 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [ main ] # Change to master if your default branch is master
-  workflow_dispatch:
+  workflow_dispatch: # This keeps your manual trigger button active!
+
 permissions:
   contents: read
   pages: write
@@ -16,22 +17,24 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Dart SDK
-        uses: dart-lang/setup-dart@v1
-
-      - name: Install webdev
-        run: flutter pub global activate webdev
+      # 1. This installs Flutter on the virtual machine
+      - name: Setup Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
 
       - name: Install Dependencies
         run: flutter pub get
 
+      # 2. This builds your Flutter web app into static files
       - name: Build Web Application
-        run: $HOME/.pub-cache/bin/webdev build
+        run: flutter build web --release
 
+      # 3. This uploads the Flutter build output folder (build/web/)
       - name: Upload Build Artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: build/
+          path: build/web/
 
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v4
