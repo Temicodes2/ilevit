@@ -28,8 +28,10 @@ jobs:
 
       # 2. This builds your Flutter web app into static files
             # Find this step in your deploy.yml and change the 'run:' line:
+            # Change your build step to look exactly like this:
       - name: Build Web Application
-        run: flutter build web --release --base-href "/ilevit/" --web-renderer html
+        run: flutter build web --release --base-href "/ilevit/"
+
 
 
 
